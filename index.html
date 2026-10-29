@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>补妆镜</title>
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="手机补妆镜：屏幕打光 + 前置摄像头显像">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="补妆镜">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { --mirror-size: 70vmin; --frame-color: rgba(255,255,255,0.35); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; touch-action: manipulation; user-select: none; -webkit-user-select: none; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #mirror-wrap { position: relative; width: var(--mirror-size); height: var(--mirror-size); border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 6px var(--frame-color), 0 0 0 12px rgba(255,255,255,0.12), 0 18px 50px rgba(0,0,0,0.25); background: #222; }
+  #mirror { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  #mirror-off { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: rgba(255,255,255,0.85); font-size: 5vmin; letter-spacing: 2px; }
+  body.mirror-off #mirror-off { display: flex; }
+  #panel { position: fixed; left: 0; right: 0; bottom: 0; padding: calc(14px + env(safe-area-inset-bottom)) 18px 18px; background: linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0)); transition: opacity .25s, transform .25s; z-index: 10; }
+  body.panel-hidden #panel { opacity: 0; pointer-events: none; transform: translateY(12px); }
+  #panel-inner { background: rgba(20,20,20,0.72); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 18px; padding: 16px 18px 14px; color: #fff; }
+  .row { display: flex; align-items: center; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  .row label { flex: 0 0 52px; font-size: 13px; color: rgba(255,255,255,0.85); }
+  .row input[type=range] { flex: 1; margin: 0 8px; accent-color: #fff; height: 28px; }
+  .row .val { flex: 0 0 52px; text-align: right; font-size: 12px; color: rgba(255,255,255,0.7); font-variant-numeric: tabular-nums; }
+  .presets { display: flex; gap: 10px; margin-bottom: 12px; }
+  .presets button { flex: 1; padding: 9px 0; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); color: #fff; border-radius: 10px; font-size: 14px; }
+  .presets button:active { background: rgba(255,255,255,0.22); }
+  .actions { display: flex; gap: 10px; }
+  .actions button { flex: 1; padding: 10px 0; border: none; border-radius: 10px; font-size: 14px; background: rgba(255,255,255,0.16); color: #fff; }
+  .actions button.on { background: rgba(255,255,255,0.9); color: #222; }
+  .actions button:active { opacity: .75; }
+  #hint { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); padding: 7px 16px; border-radius: 20px; background: rgba(0,0,0,0.45); color: #fff; font-size: 13px; z-index: 9; pointer-events: none; transition: opacity .4s; }
+  #overlay { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.78); color: #fff; text-align: center; padding: 30px; }
+  #overlay.hidden { display: none; }
+  #overlay h2 { font-size: 20px; margin: 0 0 12px; }
+  #overlay p { font-size: 14px; line-height: 1.7; color: rgba(255,255,255,0.85); margin: 0 0 20px; max-width: 320px; }
+  #overlay button { padding: 12px 30px; border: none; border-radius: 24px; background: #fff; color: #222; font-size: 15px; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="mirror-wrap">
+      <video id="mirror" playsinline autoplay muted></video>
+      <div id="mirror-off">镜面已关闭</div>
+    </div>
+  </div>
+  <div id="hint">点击空白处可隐藏 / 显示设置</div>
+  <div id="panel">
+    <div id="panel-inner">
+      <div class="presets">
+        <button data-k="3000">暖白</button>
+        <button data-k="4500">自然光</button>
+        <button data-k="6500">冷白</button>
+      </div>
+      <div class="row">
+        <label>色温</label>
+        <input type="range" id="kelvin" min="2500" max="7000" step="50" value="4500">
+        <span class="val" id="kelvin-val">4500K</span>
+      </div>
+      <div class="row">
+        <label>亮度</label>
+        <input type="range" id="brightness" min="30" max="100" step="1" value="100">
+        <span class="val" id="brightness-val">100%</span>
+      </div>
+      <div class="row">
+        <label>镜面</label>
+        <input type="range" id="mirror-size" min="40" max="95" step="1" value="70">
+        <span class="val" id="mirror-size-val">70%</span>
+      </div>
+      <div class="actions">
+        <button id="btn-mirror" class="on">镜子：开</button>
+        <button id="btn-panel">收起设置</button>
+      </div>
+    </div>
+  </div>
+  <div id="overlay" class="hidden">
+    <h2 id="overlay-title">需要摄像头权限</h2>
+    <p id="overlay-text">请在浏览器弹窗中点击“允许”，才能看到自己。</p>
+    <button id="overlay-btn">重新开启</button>
+  </div>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var video = document.getElementById('mirror');
+  var wrap = document.getElementById('mirror-wrap');
+  var panel = document.getElementById('panel');
+  var hint = document.getElementById('hint');
+  var overlay = document.getElementById('overlay');
+  var overlayTitle = document.getElementById('overlay-title');
+  var overlayText = document.getElementById('overlay-text');
+  var overlayBtn = document.getElementById('overlay-btn');
+  var kelvinInput = document.getElementById('kelvin');
+  var kelvinVal = document.getElementById('kelvin-val');
+  var brightnessInput = document.getElementById('brightness');
+  var brightnessVal = document.getElementById('brightness-val');
+  var mirrorSizeInput = document.getElementById('mirror-size');
+  var mirrorSizeVal = document.getElementById('mirror-size-val');
+  var btnMirror = document.getElementById('btn-mirror');
+  var btnPanel = document.getElementById('btn-panel');
+  var stream = null, wakeLock = null, kelvin = 4500, brightness = 100;
+
+  function kelvinToRGB(k) {
+    var t = k / 100, r, g, b;
+    if (t <= 66) { r = 255; g = 99.4708025861 * Math.log(t) - 161.1195681661; }
+    else { r = 329.698727446 * Math.pow(t - 60, -0.1332047592); g = 288.1221695283 * Math.pow(t - 60, -0.0755148492); }
+    if (t >= 66) b = 255; else if (t <= 19) b = 0; else b = 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+    return [Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b))];
+  }
+
+  function updateLight() {
+    var rgb = kelvinToRGB(kelvin);
+    var f = brightness / 100;
+    var color = 'rgb(' + Math.round(rgb[0]*f) + ',' + Math.round(rgb[1]*f) + ',' + Math.round(rgb[2]*f) + ')';
+    stage.style.background = color;
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', color);
+  }
+
+  function initCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError('不支持摄像头', '你的浏览器不支持摄像头调用，请用最新版 Chrome / Safari / Edge 打开。', false);
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      .then(function (s) {
+        stream = s; video.srcObject = s; video.play().catch(function(){});
+        hideOverlay();
+      })
+      .catch(function (err) {
+        if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+          showError('摄像头权限被拒绝', '请在浏览器地址栏的设置里允许使用摄像头，然后点击下方按钮重试。', true);
+        } else if (err && err.name === 'NotFoundError') {
+          showError('找不到摄像头', '没有检测到可用的前置摄像头。', false);
+        } else {
+          showError('摄像头启动失败', '可能是其他应用占用了摄像头，或浏览器限制了权限。', true);
+        }
+      });
+  }
+
+  function showError(title, text, retry) {
+    overlayTitle.textContent = title; overlayText.textContent = text;
+    overlayBtn.style.display = retry ? '' : 'none'; overlay.classList.remove('hidden');
+  }
+  function hideOverlay() { overlay.classList.add('hidden'); }
+  overlayBtn.addEventListener('click', function () { hideOverlay(); initCamera(); });
+
+  function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      navigator.wakeLock.request('screen').then(function (lock) {
+        wakeLock = lock;
+        lock.addEventListener('release', function () { wakeLock = null; });
+      }).catch(function(){});
+    }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') requestWakeLock();
+  });
+
+  function setKelvin(v) { kelvin = v; kelvinInput.value = v; kelvinVal.textContent = v + 'K'; updateLight(); }
+  function setBrightness(v) { brightness = v; brightnessInput.value = v; brightnessVal.textContent = v + '%'; updateLight(); }
+
+  kelvinInput.addEventListener('input', function () { setKelvin(+kelvinInput.value); });
+  brightnessInput.addEventListener('input', function () { setBrightness(+brightnessInput.value); });
+  mirrorSizeInput.addEventListener('input', function () {
+    document.documentElement.style.setProperty('--mirror-size', mirrorSizeInput.value + 'vmin');
+    mirrorSizeVal.textContent = mirrorSizeInput.value + '%';
+  });
+  document.querySelectorAll('.presets button').forEach(function (btn) {
+    btn.addEventListener('click', function () { setKelvin(+btn.getAttribute('data-k')); });
+  });
+  btnMirror.addEventListener('click', function () {
+    var off = document.body.classList.toggle('mirror-off');
+    btnMirror.textContent = off ? '镜子：关' : '镜子：开';
+    btnMirror.classList.toggle('on', !off);
+  });
+  btnPanel.addEventListener('click', function () {
+    var hidden = document.body.classList.toggle('panel-hidden');
+    btnPanel.textContent = hidden ? '展开设置' : '收起设置';
+  });
+  stage.addEventListener('click', function (e) {
+    if (e.target === stage || e.target === wrap || e.target === video) {
+      document.body.classList.toggle('panel-hidden');
+    }
+  });
+  setTimeout(function () { hint.style.opacity = '0'; }, 4000);
+
+  initCamera();
+  updateLight();
+  requestWakeLock();
+})();
+</script>
+</body>
+</html>
